@@ -183,6 +183,7 @@ uintptr_t proc::fork(regstate* regs){
 				}
 			}	
 		}
+	}
 	//copies memory of registers from parent to child
 	memcpy(newProc->regs_, regs, sizeof(regstate));
 
@@ -193,12 +194,10 @@ uintptr_t proc::fork(regstate* regs){
 	cpus[cpu].enqueue(newProc);
 	cpus[cpu].runq_lock_.unlock_noirq();
 	
-	}
-
-
+	
 
 	ptable_lock.unlock(irqs);
-	return -1;
+	return new_pid;
 }
 #pragma GCC pop_options
 // proc::syscall(regs)
