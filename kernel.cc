@@ -145,6 +145,7 @@ void proc::exception(regstate* regs) {
 #pragma GCC push_options
 #pragma GCC optimize ("-O0")
 uintptr_t proc::fork(regstate* regs){
+	auto irqs = ptable_lock.lock();
 	pid_t new_pid = -1;
 	//find process number that is available
 	for(int i = 1; i < NPROC; i++){
@@ -154,35 +155,34 @@ uintptr_t proc::fork(regstate* regs){
 		}
 	}
 	if(new_pid == -1){
+		ptable_lock.unlock(irqs);
 		return -1;
 	}
 	
-	auto irqs = ptable_lock.lock();
+	
 	assert(!ptable[new_pid]);
 	proc* newProc = ptable[new_pid] = kalloc_proc();
 	x86_64_pagetable* npt = kalloc_pagetable();
 	assert(newProc && npt);
 	newProc->init_user(new_pid, npt);
 	
-	for(int count = 1;count < NPROC; ++count ){
-		proc* p = ptable[count];
-		if(p){
-			for(vmiter it(p); it.low(); it.next()){
-				if(it.user()){
-					std::size_t page_size = PAGESIZE;
-					uintptr_t parentVA = it.va();
-					uintptr_t parentPA = it.pa();
-
-					//allocate a new page to be given to the child
-					x86_64_page* childPA = kallocpage();
-					//copy from parent to child
-					memcpy(&childPA, &parentPA, page_size);
-					uintptr_t child_pa = (uintptr_t)childPA;
-					int r = vmiter(newProc, parentVA).map(child_pa);
-					assert(!r);
-				}
-			}	
-		}
+	for(vmiter it(this); it.low(); it.next()){
+		if(it.user()){
+			std::size_t page_size = PAGESIZE;
+			uintptr_t parentVA = it.va();
+			uintptr_t parentPA = it.pa();
+			
+			uintptr_t parentPAK = pa2ka(parentPA);
+			
+			//allocate a new page to be given to the child
+			x86_64_page* childPA = kallocpage();
+			//copy from parent to child
+			memcpy((void*) childPA, (const void*)parentPAK, page_size);
+			uintptr_t child_pa = (uintptr_t)childPA;
+			int r = vmiter(newProc, parentVA).map(ka2pa(child_pa));
+			assert(!r);
+			
+		}	
 	}
 	//copies memory of registers from parent to child
 	memcpy(newProc->regs_, regs, sizeof(regstate));
